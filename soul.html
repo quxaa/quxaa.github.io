@@ -1,0 +1,17 @@
+<!-- soul.html -->
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+    window.addEventListener('message', (e) => {
+        // soul stone'dan gelen mesaji yakala (format: "Soul: XXXXXXXX")
+        if (typeof e.data === 'string' && e.data.startsWith('Soul: ')) {
+            const secret = e.data.split(' ')[1];
+            // ana sayfadaki space stone iframe'ine (index 3) gonder
+            window.opener.parent.frames[3].postMessage({type: 'soul', key: secret}, '*');
+            window.close();
+        }
+    });
+</script>
+</body>
+</html>
